@@ -35,11 +35,15 @@ const {
   createUserRateLimit,
   sanitizeRequestData
 } = require('./middleware/errorHandler');
-
-// Conectar ao MongoDB
-connectDB();
+const ensureDB = require('./middleware/ensureDB');
 
 const app = express();
+
+// Tentar conectar ao MongoDB no início (não bloqueante)
+// A conexão real será garantida pelo middleware ensureDB
+connectDB().catch(err => {
+  logger.warn('Conexão inicial MongoDB falhou (será reconectado pelo middleware):', err.message);
+});
 
 // Configurações de segurança
 app.use(helmet({
@@ -279,6 +283,9 @@ app.get('/api', (req, res) => {
 
 // Rate limiting específico por usuário (aplicado nas rotas protegidas)
 const userRateLimit = createUserRateLimit();
+
+// Garantir conexão MongoDB antes de todas as rotas de API
+app.use('/api', ensureDB);
 
 // Rotas da API
 app.use('/api/auth', authRoutes);
