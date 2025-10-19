@@ -2,10 +2,14 @@
   "version": 2,
   "buildCommand": "npm install",
   "installCommand": "npm install",
-  "rewrites": [
+  "routes": [
     {
-      "source": "/(.*)",
-      "destination": "/api"
+      "src": "/api/docs/swagger-ui.*",
+      "dest": "/api/index.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.js"
     }
   ]
 }
