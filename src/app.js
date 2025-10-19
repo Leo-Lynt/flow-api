@@ -148,8 +148,8 @@ app.get('/health', (req, res) => {
 
 // Documentação da API com Swagger UI (carregado via CDN)
 app.get('/api/docs', (req, res) => {
-  // Detectar URL base automaticamente
-  const protocol = req.protocol;
+  // Detectar URL base automaticamente (força HTTPS no Vercel)
+  const protocol = req.get('x-forwarded-proto') || req.protocol;
   const host = req.get('host');
   const baseUrl = `${protocol}://${host}`;
 
@@ -195,7 +195,23 @@ app.get('/api/docs', (req, res) => {
 
 // Endpoint JSON da especificação OpenAPI
 app.get('/api/docs.json', (req, res) => {
-  res.json(swaggerSpecs);
+  // Detectar URL base automaticamente (força HTTPS no Vercel)
+  const protocol = req.get('x-forwarded-proto') || req.protocol;
+  const host = req.get('host');
+  const baseUrl = `${protocol}://${host}`;
+
+  // Clonar specs e atualizar servidor dinamicamente
+  const dynamicSpecs = {
+    ...swaggerSpecs,
+    servers: [
+      {
+        url: baseUrl,
+        description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
+      }
+    ]
+  };
+
+  res.json(dynamicSpecs);
 });
 
 // Rota de informações da API

@@ -18,7 +18,7 @@ const options = {
     },
     servers: [
       {
-        url: process.env.NODE_ENV === 'production' ? 'https://api.flowforge.com' : `http://localhost:${process.env.PORT || 3001}`,
+        url: process.env.API_URL || (process.env.NODE_ENV === 'production' ? 'https://flow-api-rho.vercel.app' : `http://localhost:${process.env.PORT || 3001}`),
         description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
       }
     ],
