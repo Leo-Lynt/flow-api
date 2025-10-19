@@ -1,0 +1,193 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+require('dotenv').config();
+var app = require('../app');
+var debug = require('debug')('flow-forge-api:server');
+var http = require('http');
+var os = require('os');
+var { Server } = require('socket.io');
+var fs = require('fs-extra');
+var path = require('path');
+var readline = require('readline');
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+
+/**
+ * Setup Socket.io for real-time log streaming
+ */
+var io = new Server(server, {
+  cors: {
+    origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'http://localhost:5176', 'http://localhost:8080'],
+    credentials: true
+  }
+});
+
+io.on('connection', (socket) => {
+  console.log('Client connected to log stream');
+
+  socket.on('tail-logs', async (options = {}) => {
+    const logsDir = path.join(__dirname, '../logs');
+    const today = new Date().toISOString().split('T')[0];
+    const filename = options.filename || `flowforge-api-${today}.log`;
+    const filePath = path.join(logsDir, filename);
+
+    if (!await fs.pathExists(filePath)) {
+      socket.emit('error', { message: 'Log file not found' });
+      return;
+    }
+
+    // Watch for file changes
+    const watcher = fs.watch(filePath, async (eventType) => {
+      if (eventType === 'change') {
+        const fileStream = fs.createReadStream(filePath, {
+          encoding: 'utf8',
+          start: socket.lastPosition || 0
+        });
+
+        const rl = readline.createInterface({ input: fileStream });
+
+        for await (const line of rl) {
+          if (line.trim()) {
+            try {
+              const log = JSON.parse(line);
+              socket.emit('log-entry', log);
+            } catch (err) {
+              // Skip invalid JSON
+            }
+          }
+        }
+
+        socket.lastPosition = (await fs.stat(filePath)).size;
+      }
+    });
+
+    socket.on('disconnect', () => {
+      watcher.close();
+      console.log('Client disconnected from log stream');
+    });
+  });
+});
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+
+  if (typeof addr !== 'string') {
+    console.log('\n🚀 Servidor rodando!');
+    console.log('📍 Local:    http://localhost:' + addr.port);
+
+    // Obter IPs da rede
+    var networkInterfaces = os.networkInterfaces();
+    var networkIPs = [];
+
+    Object.keys(networkInterfaces).forEach(function(interfaceName) {
+      networkInterfaces[interfaceName].forEach(function(interface) {
+        if (interface.family === 'IPv4' && !interface.internal) {
+          networkIPs.push(interface.address);
+        }
+      });
+    });
+
+    if (networkIPs.length > 0) {
+      networkIPs.forEach(function(ip) {
+        console.log('🌐 Network:  http://' + ip + ':' + addr.port);
+      });
+    }
+
+    console.log('\nPressione Ctrl+C para parar o servidor\n');
+  }
+}
+
+/**
+ * Initialize scheduler service after server starts
+ */
+async function initializeScheduler() {
+  try {
+    const schedulerService = require('../src/services/schedulerService');
+    await schedulerService.initialize();
+    console.log('✅ Scheduler service initialized');
+  } catch (error) {
+    console.error('❌ Error initializing scheduler service:', error);
+  }
+}
+
+// Call scheduler initialization after server starts listening
+server.on('listening', initializeScheduler);

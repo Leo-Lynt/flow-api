@@ -1,0 +1,45 @@
+const mongoose = require('mongoose');
+
+const flowSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, 'Nome do fluxo é obrigatório'],
+    trim: true,
+    maxlength: [100, 'Nome não pode ter mais de 100 caracteres']
+  },
+  description: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Descrição não pode ter mais de 500 caracteres']
+  },
+  category: {
+    type: String,
+    required: [true, 'Categoria é obrigatória'],
+    trim: true,
+    maxlength: [100, 'Categoria não pode ter mais de 100 caracteres']
+  },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true
+  },
+  isPublic: {
+    type: Boolean,
+    default: false
+  },
+  flowDataId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FlowData'
+  }
+}, {
+  timestamps: true
+});
+
+// Índices
+flowSchema.index({ userId: 1, createdAt: -1 });
+flowSchema.index({ name: 'text', description: 'text' });
+flowSchema.index({ isPublic: 1, createdAt: -1 });
+flowSchema.index({ category: 1 });
+
+module.exports = mongoose.model('Flow', flowSchema);

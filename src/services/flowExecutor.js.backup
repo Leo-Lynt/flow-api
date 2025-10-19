@@ -1,0 +1,397 @@
+const Flow = require('../models/Flow');
+const registry = require('../engine/registry');
+const { executeNode, extractOutputs } = require('../engine/executor');
+const { AdapterRegistry } = require('../engine/AdapterRegistry.js');
+const { NodeDataSourceFactory } = require('../adapters/NodeDataSource.js');
+const { generateNodeHash } = require('../utils/hashUtils');
+const intelligentCache = require('../utils/intelligentCache');
+
+/**
+ * Ordenação topológica
+ * Determina ordem de execução baseada em dependências
+ */
+function topologicalSort(nodes, edges) {
+  const dependencies = {};
+  const visited = new Set();
+  const visiting = new Set();
+  const result = [];
+
+  // Inicializar dependências
+  nodes.forEach(node => {
+    dependencies[node.id] = [];
+  });
+
+  // Construir mapa de dependências (apenas edges de dados)
+  edges.forEach(edge => {
+    if (edge.edgeType !== 'flow') {
+      dependencies[edge.target].push(edge.source);
+    }
+  });
+
+  const visit = (nodeId) => {
+    if (visiting.has(nodeId)) {
+      throw new Error(`Dependência circular detectada envolvendo o nó ${nodeId}`);
+    }
+
+    if (visited.has(nodeId)) {
+      return;
+    }
+
+    visiting.add(nodeId);
+
+    // Visitar dependências primeiro
+    dependencies[nodeId].forEach(depId => {
+      visit(depId);
+    });
+
+    visiting.delete(nodeId);
+    visited.add(nodeId);
+    result.push(nodeId);
+  };
+
+  // Visitar todos os nós
+  Object.keys(dependencies).forEach(nodeId => {
+    if (!visited.has(nodeId)) {
+      visit(nodeId);
+    }
+  });
+
+  return result;
+}
+
+/**
+ * Obter nodes upstream (dependências)
+ * @param {string} nodeId - ID do node
+ * @param {Array} edges - Todas as edges do flow
+ * @returns {Array<string>} IDs dos nodes upstream
+ */
+function getUpstreamNodes(nodeId, edges) {
+  return edges
+    .filter(edge => edge.target === nodeId && edge.edgeType !== 'flow')
+    .map(edge => edge.source);
+}
+
+/**
+ * Calcular hashes de todos os nodes (incluindo dependências)
+ * @param {Array} nodes - Todos os nodes do flow
+ * @param {Array} edges - Todas as edges do flow
+ * @param {Object} nodeData - Dados de configuração dos nodes
+ * @returns {Object} { nodeHashes, upstreamHashes }
+ */
+function calculateNodeHashes(nodes, edges, nodeData) {
+  const executionOrder = topologicalSort(nodes, edges);
+  const nodeHashes = {};
+  const upstreamHashes = {};
+
+  for (const nodeId of executionOrder) {
+    const node = nodes.find(n => n.id === nodeId);
+
+    // Pegar hashes dos nodes upstream
+    const upstreamNodeIds = getUpstreamNodes(nodeId, edges);
+    const upstreamNodeHashes = {};
+
+    for (const upstreamId of upstreamNodeIds) {
+      upstreamNodeHashes[upstreamId] = nodeHashes[upstreamId];
+    }
+
+    // Calcular hash deste node (inclui upstream)
+    const nodeConfig = {
+      type: node.type,
+      data: nodeData[nodeId] || {},
+      ...node
+    };
+
+    nodeHashes[nodeId] = generateNodeHash(nodeId, nodeConfig, upstreamNodeHashes);
+    upstreamHashes[nodeId] = upstreamNodeHashes;
+  }
+
+  return { nodeHashes, upstreamHashes };
+}
+
+class FlowExecutor {
+  constructor() {
+    this.initialized = false;
+  }
+
+  /**
+   * Inicializar registry (carregar catálogo)
+   */
+  async initialize() {
+    if (!this.initialized) {
+      await registry.loadCatalog();
+      this.initialized = true;
+    }
+  }
+
+  /**
+   * Executar fluxo completo
+   * @param {Object} flow - Flow object com flowData
+   * @param {Object} inputData - Dados de entrada
+   * @returns {Promise<Object>} Resultado da execução
+   */
+  async executeFlow(flow, inputData = {}) {
+    try {
+      // Garantir que registry está carregado
+      await this.initialize();
+
+      // Executar fluxo
+      const result = await this.executeFlowInternal(flow, inputData);
+
+      // Atualizar contador de execução (se _id for válido)
+      if (flow._id && flow._id.toString().match(/^[0-9a-fA-F]{24}$/)) {
+        await Flow.findByIdAndUpdate(flow._id, {
+          $inc: { executionCount: 1 },
+          lastExecutedAt: new Date()
+        }).catch(err => {
+          console.warn('⚠️  Could not update flow execution count:', err.message);
+        });
+      }
+
+      return result;
+
+    } catch (error) {
+      console.error('❌ Flow execution error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Lógica interna de execução
+   * @param {Object} flow - Flow object
+   * @param {Object} inputData - Dados de entrada
+   * @returns {Promise<Object>} Resultado
+   */
+  async executeFlowInternal(flow, inputData) {
+    const { nodes, edges, nodeData = {}, globalVariables = {} } = flow.flowData;
+    const flowId = flow._id.toString();
+
+    // Initialize adapter registry with Node adapters
+    const adapters = new AdapterRegistry();
+    const nodeAdapters = await NodeDataSourceFactory.createAll();
+    nodeAdapters.forEach(({ type, adapter }) => {
+      adapters.registerDataSource(type, adapter);
+    });
+
+    // Contexto de execução
+    const context = {
+      inputData: inputData || {},
+      inputValues: inputData || {},  // Para Input nodes
+      globalVariables: { ...globalVariables },
+      executionResults: {},
+      apiConfig: {},
+      adapters  // Inject adapters into context
+    };
+
+    // Validar estrutura
+    this.validateFlowStructure(nodes, edges);
+
+    // 🧠 NOVO: Calcular hashes de todos os nodes
+    console.log('🔢 Calculating node hashes...');
+    const { nodeHashes, upstreamHashes } = calculateNodeHashes(nodes, edges, nodeData);
+
+    // Ordenação topológica
+    const executionOrder = topologicalSort(nodes, edges);
+
+    console.log('📋 Execution order:', executionOrder);
+
+    // Estatísticas de cache
+    let cacheHits = 0;
+    let cacheMisses = 0;
+
+    // Executar nodes na ordem
+    for (const nodeId of executionOrder) {
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) {
+        throw new Error(`Node ${nodeId} not found`);
+      }
+
+      try {
+        const currentHash = nodeHashes[nodeId];
+        const currentUpstreamHashes = upstreamHashes[nodeId];
+
+        // 🧠 NOVO: Tentar usar cache inteligente
+        const cachedResult = await intelligentCache.get(
+          flowId,
+          nodeId,
+          currentHash,
+          currentUpstreamHashes
+        );
+
+        if (cachedResult !== null) {
+          // ✅ Cache HIT: Reutilizar resultado
+          console.log(`✅ Using cached result for ${nodeId}`);
+          context.executionResults[nodeId] = cachedResult;
+          cacheHits++;
+          continue;
+        }
+
+        // ❌ Cache MISS: Executar node
+        console.log(`🔄 Executing node: ${nodeId} (${node.type})`);
+        cacheMisses++;
+
+        // Coletar inputs de nodes upstream
+        const inputs = this.getNodeInputs(nodeId, edges, context.executionResults);
+
+        // Executar node usando executor universal
+        const result = await executeNode(
+          node,
+          nodeData[nodeId] || {},
+          inputs,
+          context
+        );
+
+        // Extrair outputs usando extractor universal
+        const outputs = extractOutputs(
+          { ...node, data: nodeData[nodeId] },
+          result
+        );
+
+        // Armazenar resultados
+        context.executionResults[nodeId] = outputs;
+
+        // 🧠 NOVO: Salvar no cache inteligente
+        await intelligentCache.set(
+          flowId,
+          nodeId,
+          currentHash,
+          currentUpstreamHashes,
+          outputs
+        );
+
+        console.log(`✅ Node ${nodeId} completed`);
+
+      } catch (error) {
+        console.error(`❌ Error executing node ${nodeId}:`, error);
+        throw new Error(`Error in node ${nodeId}: ${error.message}`);
+      }
+    }
+
+    // Log de estatísticas
+    console.log(`📊 Cache Statistics: ${cacheHits} hits, ${cacheMisses} misses (${cacheHits + cacheMisses} total)`);
+
+    // Determinar saída final
+    const outputData = this.determineFinalOutput(context, nodes);
+
+    return {
+      outputData,
+      nodeResults: context.executionResults,
+      globalVariables: context.globalVariables,
+      cacheStats: {
+        hits: cacheHits,
+        misses: cacheMisses,
+        hitRate: cacheHits + cacheMisses > 0
+          ? ((cacheHits / (cacheHits + cacheMisses)) * 100).toFixed(1) + '%'
+          : '0%'
+      }
+    };
+  }
+
+  /**
+   * Coletar inputs de um node baseado nas edges conectadas
+   * @param {string} nodeId - ID do node
+   * @param {Array} edges - Todas as edges do flow
+   * @param {Object} executionResults - Resultados de execução
+   * @returns {Object} Inputs mapeados
+   */
+  getNodeInputs(nodeId, edges, executionResults) {
+    const inputs = {};
+
+    // Buscar edges de DADOS conectadas ao node
+    const incomingEdges = edges.filter(e =>
+      e.target === nodeId && e.edgeType !== 'flow'
+    );
+
+    for (const edge of incomingEdges) {
+      const sourceOutputs = executionResults[edge.source];
+
+      if (sourceOutputs !== undefined) {
+        // Pegar valor do handle específico do source
+        const sourceValue = (typeof sourceOutputs === 'object' &&
+                            sourceOutputs !== null &&
+                            edge.sourceHandle in sourceOutputs)
+          ? sourceOutputs[edge.sourceHandle]
+          : sourceOutputs;
+
+        // Mapear para input key (remover prefixo 'data-')
+        const inputKey = edge.targetHandle?.replace('data-', '') || 'input';
+        inputs[inputKey] = sourceValue;
+      }
+    }
+
+    return inputs;
+  }
+
+  /**
+   * Validar estrutura do flow
+   * @param {Array} nodes - Nodes do flow
+   * @param {Array} edges - Edges do flow
+   */
+  validateFlowStructure(nodes, edges) {
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+      throw new Error('Flow must contain at least one node');
+    }
+
+    if (!Array.isArray(edges)) {
+      throw new Error('Edges must be an array');
+    }
+
+    // Verificar IDs únicos
+    const nodeIds = nodes.map(n => n.id);
+    const uniqueIds = new Set(nodeIds);
+    if (nodeIds.length !== uniqueIds.size) {
+      throw new Error('Node IDs must be unique');
+    }
+
+    // Verificar edges válidas
+    edges.forEach(edge => {
+      if (!uniqueIds.has(edge.source)) {
+        throw new Error(`Source node not found: ${edge.source}`);
+      }
+      if (!uniqueIds.has(edge.target)) {
+        throw new Error(`Target node not found: ${edge.target}`);
+      }
+    });
+
+    // Verificar se todos os node types existem no catálogo
+    nodes.forEach(node => {
+      if (!registry.hasNode(node.type)) {
+        throw new Error(`Unsupported node type: ${node.type}`);
+      }
+    });
+  }
+
+  /**
+   * Determinar saída final do flow
+   * @param {Object} context - Contexto de execução
+   * @param {Array} nodes - Nodes do flow
+   * @returns {any} Saída final
+   */
+  determineFinalOutput(context, nodes) {
+    // Procurar por output nodes
+    const outputNodes = nodes.filter(n => n.type === 'output');
+
+    if (outputNodes.length > 0) {
+      const outputs = outputNodes.map(node => {
+        const result = context.executionResults[node.id];
+        return result ? (result['data-out'] || result) : null;
+      });
+
+      return outputs.length === 1 ? outputs[0] : outputs;
+    }
+
+    // Fallback: último node executado
+    const nodeIds = Object.keys(context.executionResults);
+    if (nodeIds.length > 0) {
+      const lastNodeId = nodeIds[nodeIds.length - 1];
+      const lastResult = context.executionResults[lastNodeId];
+      return lastResult['data-out'] || lastResult;
+    }
+
+    return context.inputData;
+  }
+}
+
+// Criar instância singleton
+const flowExecutor = new FlowExecutor();
+
+module.exports = flowExecutor;

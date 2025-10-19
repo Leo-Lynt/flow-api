@@ -1,0 +1,130 @@
+{
+  "flowId": "68ea5179e26aaf24ee8c2d49",
+  "flowName": "tester1234",
+  "timestamp": "2025-10-15T00:39:13.633Z",
+  "inputData": {
+    "StartData": "2025-06-01",
+    "EndData": "2025-06-03",
+    "GetTxCovn": false
+  },
+  "success": true,
+  "error": null,
+  "executedNodesCount": 7,
+  "globalVariables": {
+    "CanTXConv": {
+      "StartData": "2025/06/01",
+      "EndData": "2025-06-03",
+      "GetTxCovn": false
+    }
+  },
+  "outputData": null,
+  "nodeExecutionOrder": [
+    "input_1760186753041",
+    "variable_1760469799828",
+    "connector_1760186756616",
+    "array-filter_1760230083728",
+    "array-filter_1760293382678_0 ",
+    "array-aggregate_1760385205138",
+    "array-aggregate_1760385343178_0 "
+  ],
+  "nodeOutputsSummary": [
+    {
+      "nodeId": "input_1760186753041",
+      "nodeType": "input",
+      "position": {
+        "x": -343.0937615166717,
+        "y": 357.47697707833515
+      },
+      "outputType": "object",
+      "output": {
+        "StartData": "2025/06/01",
+        "EndData": "2025-06-03",
+        "GetTxCovn": false
+      }
+    },
+    {
+      "nodeId": "variable_1760469799828",
+      "nodeType": "variable",
+      "position": {
+        "x": 36.34912446018748,
+        "y": 368.509304640695
+      },
+      "outputType": "object",
+      "output": {
+        "StartData": "2025/06/01",
+        "EndData": "2025-06-03",
+        "GetTxCovn": false
+      }
+    },
+    {
+      "nodeId": "connector_1760186756616",
+      "nodeType": "connector",
+      "position": {
+        "x": 288.8608201453054,
+        "y": 367.12944943670385
+      },
+      "outputType": "array",
+      "outputLength": 999,
+      "output": "[999 items] - First: {\"Date\":\"2025-07-06\",\"Sessions\":\"1\",\"Total users\":\"1\",\"Average session duration\":\"155.267523\",\"Total"
+    },
+    {
+      "nodeId": "array-filter_1760230083728",
+      "nodeType": "array-filter",
+      "position": {
+        "x": 611,
+        "y": 464
+      },
+      "outputType": "array",
+      "outputLength": 35,
+      "output": "[35 items] - First: {\"Date\":\"2025-07-06\",\"Sessions\":\"1\",\"Total users\":\"1\",\"Average session duration\":\"155.267523\",\"Total"
+    },
+    {
+      "nodeId": "array-filter_1760293382678_0 ",
+      "nodeType": "array-filter",
+      "position": {
+        "x": 1030.085023983469,
+        "y": 547.659576692393
+      },
+      "outputType": "array",
+      "outputLength": 0,
+      "output": "[0 items]"
+    },
+    {
+      "nodeId": "array-aggregate_1760385205138",
+      "nodeType": "array-aggregate",
+      "position": {
+        "x": 1429.0639321908882,
+        "y": 606.7077784553916
+      },
+      "outputType": "number",
+      "output": 0
+    },
+    {
+      "nodeId": "array-aggregate_1760385343178_0 ",
+      "nodeType": "array-aggregate",
+      "position": {
+        "x": 1435.797453416249,
+        "y": 712.4336064623576
+      },
+      "outputType": "number",
+      "output": 0
+    }
+  ],
+  "flowStructure": {
+    "totalNodes": 21,
+    "totalEdges": 29,
+    "nodesByType": {
+      "input": 1,
+      "connector": 1,
+      "output": 1,
+      "array-filter": 2,
+      "debug-viewer": 1,
+      "array-aggregate": 2,
+      "object-create": 2,
+      "divide": 1,
+      "round": 1,
+      "variable": 8,
+      "conditional-branch": 1
+    }
+  }
+}
