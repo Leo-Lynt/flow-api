@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "installCommand": "npm ci --production=false",
+  "installCommand": "npm install --legacy-peer-deps",
   "routes": [
     {
       "src": "/api/docs/swagger-ui.*",
