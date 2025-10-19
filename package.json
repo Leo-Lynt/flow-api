@@ -10,7 +10,7 @@
     "seed": "node scripts/seed.js"
   },
   "dependencies": {
-    "@flow-forge/core": "workspace:*",
+    "@leo-lynt/lynt-flow-core": "^0.1.0",
     "@google-analytics/data": "^5.2.0",
     "axios": "^1.7.7",
     "bcryptjs": "^3.0.2",
