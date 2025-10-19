@@ -1,7 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm install",
-  "installCommand": "npm install",
+  "installCommand": "npm ci --production=false",
   "routes": [
     {
       "src": "/api/docs/swagger-ui.*",

@@ -148,6 +148,11 @@ app.get('/health', (req, res) => {
 
 // Documentação da API com Swagger UI (carregado via CDN)
 app.get('/api/docs', (req, res) => {
+  // Detectar URL base automaticamente
+  const protocol = req.protocol;
+  const host = req.get('host');
+  const baseUrl = `${protocol}://${host}`;
+
   res.send(`
     <!DOCTYPE html>
     <html lang="en">
@@ -165,7 +170,7 @@ app.get('/api/docs', (req, res) => {
         <script>
           window.onload = () => {
             window.ui = SwaggerUIBundle({
-              url: '/api/docs.json',
+              url: '${baseUrl}/api/docs.json',
               dom_id: '#swagger-ui',
               deepLinking: true,
               presets: [
