@@ -22,34 +22,48 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-// Criar pasta de logs se não existir
+// Criar pasta de logs se não existir (apenas em ambientes com filesystem writable)
+const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
 const logsDir = path.join(__dirname, '../../logs');
 const fs = require('fs');
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
+
+let fileRotateTransport = null;
+
+if (!isServerless) {
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+  }
+
+  // Transport para arquivo com rotação diária (apenas em ambientes locais)
+  fileRotateTransport = new DailyRotateFile({
+    filename: path.join(logsDir, 'flowforge-api-%DATE%.log'),
+    datePattern: 'YYYY-MM-DD',
+    maxSize: '20m',
+    maxFiles: '14d',
+    format: customFormat,
+    level: 'debug'
+  });
 }
 
-// Transport para arquivo com rotação diária
-const fileRotateTransport = new DailyRotateFile({
-  filename: path.join(logsDir, 'flowforge-api-%DATE%.log'),
-  datePattern: 'YYYY-MM-DD',
-  maxSize: '20m',
-  maxFiles: '14d',
-  format: customFormat,
-  level: 'debug'
-});
+let errorFileTransport = null;
 
-// Transport para erros
-const errorFileTransport = new DailyRotateFile({
-  filename: path.join(logsDir, 'flowforge-error-%DATE%.log'),
-  datePattern: 'YYYY-MM-DD',
-  maxSize: '20m',
-  maxFiles: '30d',
-  level: 'error',
-  format: customFormat
-});
+if (!isServerless) {
+  // Transport para erros (apenas em ambientes locais)
+  errorFileTransport = new DailyRotateFile({
+    filename: path.join(logsDir, 'flowforge-error-%DATE%.log'),
+    datePattern: 'YYYY-MM-DD',
+    maxSize: '20m',
+    maxFiles: '30d',
+    level: 'error',
+    format: customFormat
+  });
+}
 
 // Criar logger
+const transports = [];
+if (fileRotateTransport) transports.push(fileRotateTransport);
+if (errorFileTransport) transports.push(errorFileTransport);
+
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: customFormat,
@@ -57,16 +71,13 @@ const logger = winston.createLogger({
     service: 'flowforge-api',
     environment: process.env.NODE_ENV || 'development'
   },
-  transports: [
-    fileRotateTransport,
-    errorFileTransport
-  ]
+  transports: transports
 });
 
-// Adicionar console transport em desenvolvimento
-if (process.env.NODE_ENV !== 'production') {
+// Adicionar console transport (sempre em serverless, ou em desenvolvimento)
+if (isServerless || process.env.NODE_ENV !== 'production') {
   logger.add(new winston.transports.Console({
-    format: consoleFormat,
+    format: isServerless ? customFormat : consoleFormat,
     level: 'debug'
   }));
 }
