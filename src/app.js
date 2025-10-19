@@ -4,7 +4,6 @@ const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const logger = require('./utils/logger');
 const requestLoggerMiddleware = require('./middleware/requestLogger');
@@ -147,19 +146,32 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Documentação Swagger
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'Flow-Forge API Documentation',
-  explorer: true,
-  swaggerOptions: {
-    persistAuthorization: true,
-    displayRequestDuration: true,
-    filter: true,
-    showExtensions: true,
-    showCommonExtensions: true
-  }
-}));
+// Documentação da API com Redoc (sem dependências extras)
+app.get('/api/docs', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Flow-Forge API Documentation</title>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
+        <style>
+          body { margin: 0; padding: 0; }
+        </style>
+      </head>
+      <body>
+        <redoc spec-url='/api/docs.json'></redoc>
+        <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+      </body>
+    </html>
+  `);
+});
+
+// Endpoint JSON da especificação OpenAPI
+app.get('/api/docs.json', (req, res) => {
+  res.json(swaggerSpecs);
+});
 
 // Rota de informações da API
 /**
