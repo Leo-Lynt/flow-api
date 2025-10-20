@@ -308,16 +308,30 @@ app.use(notFoundHandler);
 // Middleware de tratamento de erros (deve ser o último)
 app.use(errorHandler);
 
-// Tratamento de erros não capturados
-process.on('uncaughtException', (err) => {
-  console.error('Erro não capturado:', err);
-  process.exit(1);
-});
+// Detectar ambiente serverless
+const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Promise rejeitada não tratada:', reason);
-  // Em produção, pode ser melhor fazer graceful shutdown
-  process.exit(1);
-});
+// Tratamento de erros não capturados (apenas em ambientes tradicionais)
+if (!isServerless) {
+  process.on('uncaughtException', (err) => {
+    console.error('Erro não capturado:', err);
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Promise rejeitada não tratada:', reason);
+    // Em produção, pode ser melhor fazer graceful shutdown
+    process.exit(1);
+  });
+} else {
+  // Em serverless, apenas logar sem fazer exit
+  process.on('uncaughtException', (err) => {
+    console.error('Erro não capturado (serverless):', err);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Promise rejeitada não tratada (serverless):', reason);
+  });
+}
 
 module.exports = app;

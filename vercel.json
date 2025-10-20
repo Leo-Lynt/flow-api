@@ -1,6 +1,12 @@
 {
   "version": 2,
   "buildCommand": "npm install --legacy-peer-deps",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
   "routes": [
     {
       "src": "/api/docs/swagger-ui.*",
@@ -9,6 +15,21 @@
     {
       "src": "/(.*)",
       "dest": "/api/index.js"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production",
+    "VERCEL": "1"
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "X-Powered-By",
+          "value": "Flow-Forge API"
+        }
+      ]
     }
   ]
 }

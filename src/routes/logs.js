@@ -3,8 +3,25 @@ const router = express.Router();
 const logController = require('../controllers/logController');
 const { authenticate } = require('../middleware/auth');
 
+// Detectar ambiente serverless
+const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
+
 // Apply authentication to all log routes
 router.use(authenticate);
+
+// Middleware para desabilitar rotas de logs em serverless
+if (isServerless) {
+  router.use((req, res) => {
+    res.status(503).json({
+      success: false,
+      error: {
+        message: 'Log file operations are not available in serverless environment.',
+        code: 'LOGS_UNAVAILABLE_SERVERLESS',
+        suggestion: 'Use Vercel Dashboard or configure a cloud logging service (Datadog, LogTail, etc.)'
+      }
+    });
+  });
+}
 
 /**
  * @swagger
