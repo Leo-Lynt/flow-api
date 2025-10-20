@@ -4,7 +4,8 @@
   "description": "API backend para Flow-Forge - Ferramenta visual de transformação de dados",
   "private": true,
   "scripts": {
-    "start": "node ./bin/www",
+    "start": "NODE_ENV=production node ./bin/www",
+    "start:dev": "node ./bin/www",
     "dev": "nodemon ./bin/www",
     "test": "echo \"Error: no test specified\" && exit 1",
     "seed": "node scripts/seed.js"
